@@ -734,6 +734,10 @@ struct FeatureFlags {
     #[serde(skip_serializing_if = "is_false")]
     enable_accumulators: bool,
 
+    // Enable coin registry protocol
+    #[serde(skip_serializing_if = "is_false")]
+    enable_coin_registry: bool,
+
     // Enable statically type checked ptb execution
     #[serde(skip_serializing_if = "is_false")]
     enable_ptb_execution_v2: bool,
@@ -1880,6 +1884,10 @@ impl ProtocolConfig {
 
     pub fn enable_accumulators(&self) -> bool {
         self.feature_flags.enable_accumulators
+    }
+
+    pub fn enable_coin_registry(&self) -> bool {
+        self.feature_flags.enable_coin_registry
     }
 
     pub fn enable_coin_deny_list_v2(&self) -> bool {
@@ -3935,6 +3943,9 @@ impl ProtocolConfig {
                 93 => {
                     cfg.feature_flags
                         .consensus_checkpoint_signature_key_includes_digest = true;
+                    if chain != Chain::Mainnet && chain != Chain::Testnet {
+                        cfg.feature_flags.enable_coin_registry = true;
+                    }
                 }
                 94 => {
                     // Decrease stored observations limit 20->18 to stay within system object size limit.
