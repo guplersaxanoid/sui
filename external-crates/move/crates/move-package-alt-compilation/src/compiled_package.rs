@@ -5,7 +5,7 @@
 use move_package_alt::{
     flavor::MoveFlavor,
     graph::NamedAddress,
-    package::{RootPackage, paths::PackagePath},
+    package::RootPackage,
     schema::{OriginalID, PackageName},
 };
 
@@ -379,8 +379,8 @@ fn source_paths_for_config(package_path: &Path, config: &BuildConfig) -> Vec<Pat
 }
 
 // Find all the source files for a package at the given path
-fn get_sources(path: &PackagePath, config: &BuildConfig) -> Result<Vec<FileName>> {
-    let places_to_look = source_paths_for_config(path.path(), config);
+fn get_sources(path: &Path, config: &BuildConfig) -> Result<Vec<FileName>> {
+    let places_to_look = source_paths_for_config(path, config);
     Ok(find_move_filenames(&places_to_look, false)?
         .into_iter()
         .map(FileName::from)
@@ -475,7 +475,7 @@ pub fn build_all<W: Write, F: MoveFlavor>(
 
     // TODO: improve/rework this? Renaming the root pkg to have a unique name for the compiler
     // this has to match whatever we're doing in build_for_driver function
-    let root_package_name = Symbol::from(format!("{}_root", package_name.as_str()));
+    let root_package_name = Symbol::from(format!("{}", package_name.as_str()));
 
     for mut annot_unit in all_compiled_units {
         let source_path = PathBuf::from(
@@ -578,6 +578,7 @@ pub(crate) fn build_for_driver<W: Write, T, F: MoveFlavor>(
     compiler_driver: impl FnOnce(Compiler) -> Result<T>,
 ) -> Result<T> {
     let packages = root_pkg.packages()?;
+    let pwd = std::env::current_dir()?;
 
     let mut package_paths: Vec<PackagePaths> = vec![];
 
@@ -600,7 +601,7 @@ pub(crate) fn build_for_driver<W: Write, T, F: MoveFlavor>(
 
         // TODO: improve/rework this? Renaming the root pkg to have a unique name for the compiler
         let safe_name = if pkg.is_root() {
-            Symbol::from(format!("{}_root", name))
+            Symbol::from(format!("{}", name))
         } else {
             Symbol::from(format!("{}_{}", name, counter))
         };
@@ -609,7 +610,17 @@ pub(crate) fn build_for_driver<W: Write, T, F: MoveFlavor>(
         debug!("Named address map {:#?}", addresses);
         let paths = PackagePaths {
             name: Some((safe_name, config)),
-            paths: get_sources(pkg.path(), build_config)?,
+            paths: get_sources(
+                // the original pkg system had relative paths to the package sources. This tries to
+                // keep it the same, otherwise the snapshots get messed up with tmp directory
+                // information
+                &if let Ok(relative_path) = pkg.path().path().strip_prefix(&pwd) {
+                    PathBuf::from(".").join(relative_path)
+                } else {
+                    pkg.path().path().to_path_buf()
+                },
+                build_config,
+            )?,
             named_address_map: addresses.inner,
         };
 
@@ -648,7 +659,13 @@ impl From<BTreeMap<PackageName, NamedAddress>> for BuildNamedAddresses {
             let name = dep_name.as_str().into();
 
             let addr = match dep {
-                NamedAddress::RootPackage(_) => AccountAddress::ZERO,
+                NamedAddress::RootPackage(addr) => {
+                    if let Some(addr) = addr {
+                        addr.0
+                    } else {
+                        AccountAddress::ZERO
+                    }
+                }
                 NamedAddress::Unpublished { dummy_addr } => dummy_addr.0,
                 NamedAddress::Defined(original_id) => original_id.0,
             };
