@@ -125,19 +125,18 @@ pub struct BuildConfig {
     pub chain_id: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct PackageDependencies {
-    /// Set of published dependencies (name and address).
-    pub published: BTreeMap<Symbol, ObjectID>,
-    /// Set of unpublished dependencies (name).
-    pub unpublished: BTreeSet<Symbol>,
-    /// Set of dependencies with invalid `published-at` addresses.
-    pub invalid: BTreeMap<Symbol, String>,
-    /// Set of dependencies that have conflicting `published-at` addresses. The key refers to
-    /// the package, and the tuple refers to the address in the (Move.lock, Move.toml) respectively.
-    pub conflicting: BTreeMap<Symbol, (ObjectID, ObjectID)>,
-}
-//
+// #[derive(Debug, Clone)]
+// pub struct PackageDependencies {
+//     /// Set of published dependencies (name and address).
+//     pub published: BTreeMap<Symbol, ObjectID>,
+//     /// Set of unpublished dependencies (name).
+//     pub unpublished: BTreeSet<Symbol>,
+//     /// Set of dependencies with invalid `published-at` addresses.
+//     pub invalid: BTreeMap<Symbol, String>,
+//     /// Set of dependencies that have conflicting `published-at` addresses. The key refers to
+//     /// the package, and the tuple refers to the address in the (Move.lock, Move.toml) respectively.
+//     pub conflicting: BTreeMap<Symbol, (ObjectID, ObjectID)>,
+// }
 
 impl BuildConfig {
     pub fn new_for_testing() -> Self {
