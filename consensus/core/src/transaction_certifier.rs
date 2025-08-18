@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use consensus_config::Stake;
 use consensus_types::block::{BlockRef, Round, TransactionIndex};
@@ -328,6 +328,8 @@ impl CertifierState {
 
         let mut certified_blocks = vec![];
 
+        let now = self.context.clock.timestamp_utc_ms();
+
         // Update reject votes from the input block.
         for block_votes in voted_block.transaction_votes() {
             if block_votes.block_ref.round <= self.gc_round {
@@ -362,6 +364,15 @@ impl CertifierState {
                             .saturating_sub(certified_block.block.round())
                             as f64,
                     );
+
+                let latency =
+                    Duration::from_millis(certified_block.block.timestamp_ms().saturating_sub(now));
+                self.context
+                    .metrics
+                    .node_metrics
+                    .certifier_block_latency
+                    .with_label_values(&[&authority_name])
+                    .observe(latency.as_secs_f64());
                 certified_blocks.push(certified_block);
             }
         }
