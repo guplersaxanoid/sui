@@ -345,6 +345,23 @@ impl CertifierState {
             // Check if the target block is now certified after including the reject votes.
             // NOTE: votes can already exist for the target block and its transactions.
             if let Some(certified_block) = vote_info.take_certified_output(&self.context) {
+                let authority_name = self
+                    .context
+                    .committee
+                    .authority(certified_block.block.author())
+                    .hostname
+                    .clone();
+                self.context
+                    .metrics
+                    .node_metrics
+                    .certifier_block_rounds
+                    .with_label_values(&[&authority_name])
+                    .observe(
+                        voted_block
+                            .round()
+                            .saturating_sub(certified_block.block.round())
+                            as f64,
+                    );
                 certified_blocks.push(certified_block);
             }
         }
@@ -406,6 +423,23 @@ impl CertifierState {
                 // Check if the target block is now certified after including the accept votes.
                 if let Some(certified_block) = target_vote_info.take_certified_output(&self.context)
                 {
+                    let authority_name = self
+                        .context
+                        .committee
+                        .authority(certified_block.block.author())
+                        .hostname
+                        .clone();
+                    self.context
+                        .metrics
+                        .node_metrics
+                        .certifier_block_rounds
+                        .with_label_values(&[&authority_name])
+                        .observe(
+                            proposed_block
+                                .round()
+                                .saturating_sub(certified_block.block.round())
+                                as f64,
+                        );
                     certified_blocks.push(certified_block);
                 }
             }
