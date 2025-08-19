@@ -81,8 +81,9 @@ impl EffectsCertifier {
             SubmitTxResponse::Executed {
                 effects_digest,
                 details,
+                fast_path,
             } => match details {
-                Some(details) => (None, Some((effects_digest, details))),
+                Some(details) => (None, Some((effects_digest, details, fast_path))),
                 // Details should always be set in correct responses.
                 // But if it is not set, continuing to get full effects and certify the digest are still correct.
                 None => (None, None),
@@ -103,6 +104,7 @@ impl EffectsCertifier {
                 consensus_position,
                 options,
                 is_single_writer_tx,
+                current_target
             ),
             async {
                 // No need to send a full effects request if it is already provided.
@@ -133,7 +135,7 @@ impl EffectsCertifier {
         loop {
             let display_name = authority_aggregator.get_display_name(&current_target);
             match full_effects_result {
-                Ok((effects_digest, executed_data)) => {
+                Ok((effects_digest, executed_data, _fast_path)) => {
                     if effects_digest != certified_digest {
                         tracing::warn!(
                             ?current_target,
@@ -207,7 +209,7 @@ impl EffectsCertifier {
         tx_digest: &TransactionDigest,
         consensus_position: Option<ConsensusPosition>,
         options: &SubmitTransactionOptions,
-    ) -> Result<(TransactionEffectsDigest, Box<ExecutedData>), TransactionRequestError>
+    ) -> Result<(TransactionEffectsDigest, Box<ExecutedData>, bool), TransactionRequestError>
     where
         A: AuthorityAPI + Send + Sync + 'static + Clone,
     {
@@ -228,11 +230,12 @@ impl EffectsCertifier {
                 WaitForEffectsResponse::Executed {
                     effects_digest,
                     details,
+                    fast_path,
                 } => {
                     if let Some(details) = details {
                         tracing::Span::current()
                             .record("ret_effects_digest", format!("{:?}", effects_digest));
-                        Ok((effects_digest, details))
+                        Ok((effects_digest, details, fast_path))
                     } else {
                         tracing::debug!("Execution data not found, retrying...");
                         Err(TransactionRequestError::ExecutionDataNotFound)
@@ -262,6 +265,7 @@ impl EffectsCertifier {
         consensus_position: Option<ConsensusPosition>,
         options: &SubmitTransactionOptions,
         is_single_writer_tx: bool,
+        submitted_tx_to_validator: AuthorityName,
     ) -> Result<TransactionEffectsDigest, TransactionDriverError>
     where
         A: AuthorityAPI + Send + Sync + 'static + Clone,
@@ -334,6 +338,9 @@ impl EffectsCertifier {
         // but do not have a local reason to reject the transaction. The validator could have
         // accepted the transaction during voting, or the reason has been lost.
         let mut reason_not_found_aggregator = StatusAggregator::<()>::new(committee.clone());
+        // Collect responses from validators which observed the transaction getting executed,
+        // and executed the transaction using fast path.
+        let mut fast_path_aggregator = StatusAggregator::<()>::new(committee.clone());
 
         // Every validator returns at most one WaitForEffectsResponse.
         while let Some((name, response)) = futures.next().await {
@@ -341,11 +348,17 @@ impl EffectsCertifier {
                 Ok(WaitForEffectsResponse::Executed {
                     effects_digest,
                     details: _,
+                    fast_path,
                 }) => {
                     let aggregator = effects_digest_aggregators
                         .entry(effects_digest)
                         .or_insert_with(|| StatusAggregator::<()>::new(committee.clone()));
                     aggregator.insert(name, ());
+
+                    if fast_path {
+                        fast_path_aggregator.insert(name, ());
+                    }
+
                     if aggregator.reached_quorum_threshold() {
                         let quorum_weight = aggregator.total_votes();
                         for (other_digest, other_aggregator) in effects_digest_aggregators {
@@ -368,6 +381,25 @@ impl EffectsCertifier {
                                 TX_TYPE_SHARED_OBJ_TX
                             }])
                             .observe(timer.elapsed().as_secs_f64());
+
+                        if fast_path_aggregator.reached_quorum_threshold() {
+                            // get the display name of the validator that the transaction has been submitted to
+                            let display_name =
+                                authority_aggregator.get_display_name(&submitted_tx_to_validator);
+
+                            self.metrics
+                                .transaction_fast_path_acked
+                                .with_label_values(&[
+                                    &display_name,
+                                    if is_single_writer_tx {
+                                        TX_TYPE_SINGLE_WRITER_TX
+                                    } else {
+                                        TX_TYPE_SHARED_OBJ_TX
+                                    },
+                                ])
+                                .inc();
+                        }
+
                         return Ok(effects_digest);
                     }
                 }
