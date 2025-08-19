@@ -221,11 +221,11 @@ fn default_max_consecutive_failures() -> u32 {
 }
 
 fn default_latency_weight() -> f64 {
-    0.4
+    0.9
 }
 
 fn default_reliability_weight() -> f64 {
-    0.6
+    0.1
 }
 
 fn default_submit_latency_weight() -> f64 {
