@@ -284,9 +284,10 @@ impl<A: Clone> ValidatorClientMonitor<A> {
         // Since the cached scores are updated periodically, it is possible that it was ran on
         // an out-of-date committee.
         let mut validator_with_scores: Vec<_> = committee
-            .names()
+            .voting_rights
+            .iter()
             .zip(cached_scores.iter())
-            .map(|(v, score)| (*v, *score))
+            .map(|((v, stake), score)| (*v, *score, *stake))
             .collect();
         validator_with_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
@@ -295,20 +296,20 @@ impl<A: Clone> ValidatorClientMonitor<A> {
         let mut result = Vec::with_capacity(validator_with_scores.len());
 
         if k > 0 {
-            // For the top K elements, use weighted random selection
+            // For the top K elements, use weighted random selection using as weight the stake of the validator.
             let top_k = &validator_with_scores[..k];
 
             let selected = top_k
-                .choose_multiple_weighted(&mut rng, k, |(_, score)| *score as f64)
+                .choose_multiple_weighted(&mut rng, k, |(_, _, stake)| *stake as f64)
                 .expect("Failed to select weighted validators")
-                .map(|(validator, _)| *validator)
+                .map(|(validator, _, _)| *validator)
                 .collect::<Vec<_>>();
 
             result.extend(selected);
         }
 
         // Add the remaining elements in score descending order
-        for (validator, _) in &validator_with_scores[k..] {
+        for (validator, _, _) in &validator_with_scores[k..] {
             result.push(*validator);
         }
 
