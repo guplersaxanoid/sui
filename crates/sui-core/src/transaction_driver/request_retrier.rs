@@ -38,8 +38,8 @@ impl<A: Clone> RequestRetrier<A> {
     ) -> Self {
         let percentage_stake = std::env::var("PERCENTAGE_STAKE")
             .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(50);
+            .and_then(|s: String| s.parse::<usize>().ok())
+            .unwrap_or(25);
 
         debug!("Using percentage_stake: {}", percentage_stake);
 
