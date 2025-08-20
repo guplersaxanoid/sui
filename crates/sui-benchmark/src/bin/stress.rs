@@ -77,8 +77,6 @@ async fn main() -> Result<()> {
     if !opts.log_path.is_empty() {
         config.log_file = Some(opts.log_path.clone());
     }
-    let _guard = config.with_env().init();
-
     let registry_service = mysten_metrics::start_prometheus_server(
         format!("{}:{}", opts.client_metric_host, opts.client_metric_port)
             .parse()
@@ -86,6 +84,8 @@ async fn main() -> Result<()> {
     );
     let registry: Registry = registry_service.default_registry();
     mysten_metrics::init_metrics(&registry);
+
+    let (_guard, _tracing_handle) = config.with_env().with_prom_registry(&registry).init();
 
     let barrier = Arc::new(Barrier::new(2));
     let cloned_barrier = barrier.clone();

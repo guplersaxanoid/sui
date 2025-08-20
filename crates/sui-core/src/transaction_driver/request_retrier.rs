@@ -36,18 +36,17 @@ impl<A: Clone> RequestRetrier<A> {
         auth_agg: &Arc<AuthorityAggregator<A>>,
         client_monitor: &Arc<ValidatorClientMonitor<A>>,
     ) -> Self {
-        let preferred_validators_num = std::env::var("PREFERRED_VALIDATORS_NUM")
+        let percentage_stake = std::env::var("PERCENTAGE_STAKE")
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(auth_agg.committee.num_members() / 4);
+            .unwrap_or(50);
 
-        debug!(
-            "Using preferred_validators_num: {}",
-            preferred_validators_num
+        debug!("Using percentage_stake: {}", percentage_stake);
+
+        let selected_validators = client_monitor.select_shuffled_preferred_validators_consensus(
+            &auth_agg.committee,
+            percentage_stake as u64,
         );
-
-        let selected_validators = client_monitor
-            .select_shuffled_preferred_validators(&auth_agg.committee, preferred_validators_num);
         let remaining_clients = selected_validators
             .into_iter()
             .map(|name| (name, auth_agg.authority_clients[&name].clone()))

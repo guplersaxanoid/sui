@@ -13,7 +13,7 @@ use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::{sync::Arc, time::Instant};
 use sui_config::validator_client_monitor_config::ValidatorClientMonitorConfig;
-use sui_types::committee::Committee;
+use sui_types::committee::{Committee, StakeUnit};
 use sui_types::{base_types::AuthorityName, messages_grpc::ValidatorHealthRequest};
 use tokio::{
     task::JoinSet,
@@ -268,7 +268,7 @@ impl<A: Clone> ValidatorClientMonitor<A> {
     pub fn select_shuffled_preferred_validators_consensus(
         &self,
         committee: &Committee,
-        k: usize,
+        k_stake: StakeUnit,
         // TODO: Pass in the operation type so that we can select validators based on the operation type.
     ) -> Vec<AuthorityName> {
         let mut rng = rand::thread_rng();
@@ -281,37 +281,43 @@ impl<A: Clone> ValidatorClientMonitor<A> {
 
         let cached_scores = cached_scores.1.clone();
 
-        // Since the cached scores are updated periodically, it is possible that it was ran on
-        // an out-of-date committee.
+        // Sort the validators by score
         let mut validator_with_scores: Vec<_> = committee
             .voting_rights
             .iter()
             .zip(cached_scores.iter())
-            .map(|((v, stake), score)| (*v, *score, *stake))
+            .map(|((v, stake), score)| (*v, *stake, *score))
             .collect();
-        validator_with_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        validator_with_scores.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
 
-        let k = k.min(validator_with_scores.len());
+        let stake_threshold = (committee.total_votes() * k_stake) / 100;
+
+        // Identify the top k validators by stake and with the best scores
+        let mut k_stake_accumulated = 0;
+        let mut top_k_validators = Vec::new();
+        let mut rest_validators = Vec::new();
+        for (validator, score, stake) in validator_with_scores.iter() {
+            k_stake_accumulated += *stake;
+            if k_stake_accumulated <= stake_threshold {
+                top_k_validators.push((*validator, *score, *stake));
+            } else {
+                rest_validators.push((*validator, *score, *stake));
+            }
+        }
 
         let mut result = Vec::with_capacity(validator_with_scores.len());
 
-        if k > 0 {
-            // For the top K elements, use weighted random selection using as weight the stake of the validator.
-            let top_k = &validator_with_scores[..k];
+        // For the top K elements, use weighted random selection using as weight the stake of the validator.
+        let selected = top_k_validators
+            .choose_multiple_weighted(&mut rng, top_k_validators.len(), |(_, _, score)| {
+                *score as f64
+            })
+            .expect("Failed to select weighted validators")
+            .map(|(validator, _, _)| *validator)
+            .collect::<Vec<_>>();
 
-            let selected = top_k
-                .choose_multiple_weighted(&mut rng, k, |(_, _, stake)| *stake as f64)
-                .expect("Failed to select weighted validators")
-                .map(|(validator, _, _)| *validator)
-                .collect::<Vec<_>>();
-
-            result.extend(selected);
-        }
-
-        // Add the remaining elements in score descending order
-        for (validator, _, _) in &validator_with_scores[k..] {
-            result.push(*validator);
-        }
+        result.extend(selected);
+        result.extend(rest_validators.into_iter().map(|(v, _, _)| v));
 
         result
     }
